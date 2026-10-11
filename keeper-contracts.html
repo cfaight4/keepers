@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Keeper Contracts</title>
+<style>
+:root{--bg:#0f1419;--card:#1a2230;--line:#2a3547;--tx:#e8edf3;--mu:#8b9ab0;--ac:#4ade80;--wa:#fbbf24;--rd:#f87171}
+@media (prefers-color-scheme:light){:root{--bg:#f4f6f9;--card:#fff;--line:#dde3ec;--tx:#18212e;--mu:#617089;--ac:#15803d;--wa:#b45309;--rd:#b91c1c}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:14px;max-width:900px;margin:auto}
+h1{font-size:20px;margin:0 0 10px}h2{font-size:16px;margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+input,select,textarea,button{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+button{cursor:pointer}button.p{background:var(--ac);color:#000;border:0;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.grow{flex:1;min-width:0}
+.mu{color:var(--mu);font-size:13px}
+.nav{display:flex;gap:8px;align-items:center}.nav select{flex:1;min-width:0}
+table{width:100%;border-collapse:collapse}th{font-size:12px;color:var(--mu);text-align:left;font-weight:500}
+td,th{padding:7px 4px;border-bottom:1px solid var(--line);vertical-align:middle}
+.wrap{overflow-x:auto}
+.pos{font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px;background:var(--line)}
+.chip{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
+.fin{color:var(--wa);border-color:var(--wa)}.exp{color:var(--rd);border-color:var(--rd)}.ok{color:var(--ac);border-color:var(--ac)}
+tr.kept{background:rgba(74,222,128,.09)}tr.expd td:first-child{opacity:.55}
+.yr{width:70px;padding:4px}.rd{width:62px;padding:4px}
+.rm{border-left:3px solid var(--ac);padding:6px 10px;margin:6px 0;background:var(--bg);border-radius:6px}
+.warn{color:var(--wa)}
+</style></head><body>
+<h1>🏈 Keeper Contracts</h1>
+
+<div class="card">
+  <div class="row"><input id="lid" class="grow" inputmode="numeric" placeholder="Sleeper league ID">
+  <button class="p" id="go">Load league</button></div>
+  <div class="mu" id="msg" style="margin-top:6px">Find your league ID in the Sleeper URL or app league settings.</div>
+</div>
+
+<div id="app" hidden>
+  <div class="card row">
+    <label class="mu">Planning for season</label>
+    <select id="season"></select>
+    <span class="mu grow" id="rule">Contract: draft year = year 1, kept twice, expires draft year + 2.</span>
+  </div>
+
+  <div class="card">
+    <div class="nav"><button id="prev">◀</button><select id="team"></select><button id="next">▶</button></div>
+    <div class="mu" id="tsum" style="margin:8px 0"></div>
+    <div class="wrap"><table><thead><tr><th>Player</th><th>Expires</th><th>Status</th><th>Keep</th><th>Rd</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </div>
+
+  <div class="card"><h2>Picks to remove from the upcoming draft</h2><div id="rem"></div>
+    <div class="mu">Traded picks aren't checked — verify each team still owns the pick.</div></div>
+
+  <div class="card"><h2>Initial expiration list</h2>
+    <div class="mu">One per line: <b>Player Name, 2027</b>. These override the estimated years. You can also edit any year in the table.</div>
+    <textarea id="imp" rows="5" style="width:100%;margin:6px 0" placeholder="Justin Jefferson, 2027&#10;Malik Nabers, 2028"></textarea>
+    <div class="row"><button id="doimp">Apply list</button><button id="clr">Clear all overrides</button></div>
+    <div class="mu" id="impmsg"></div></div>
+</div>
+
+<script>
+const API='https://api.sleeper.app/v1',$=s=>document.querySelector(s);
+const ls=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
+const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+let S={},over=ls('kc_over',{}),keep=ls('kc_keep',{}),rOver=ls('kc_round',{});
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const j=async u=>{const r=await fetch(API+u);if(!r.ok)throw new Error(u+' '+r.status);return r.json()};
+const msg=t=>$('#msg').textContent=t;
+$('#lid').value=ls('kc_league','');
+
+async function load(){
+  const id=$('#lid').value.trim();if(!id)return;
+  try{
+    msg('Loading league…');
+    const [lg,rosters,users]=await Promise.all([j('/league/'+id),j(`/league/${id}/rosters`),j(`/league/${id}/users`)]);
+    sv('kc_league',id);
+    msg('Loading draft history…');
+    const rounds={};let cur=lg,n=0;
+    while(cur&&n++<4){
+      const ds=await j(`/league/${cur.league_id}/drafts`).catch(()=>[]);
+      ds.sort((a,b)=>b.start_time-a.start_time);
+      for(const d of ds){ if(d.status!=='complete')continue;
+        const ps=await j(`/draft/${d.draft_id}/picks`).catch(()=>[]);
+        ps.forEach(p=>{if(p.player_id&&!rounds[p.player_id])rounds[p.player_id]={round:p.round,season:d.season}});
+      }
+      cur=cur.previous_league_id&&cur.previous_league_id!=='0'?await j('/league/'+cur.previous_league_id).catch(()=>null):null;
+    }
+    msg('Loading players (large, one moment)…');
+    const players=await j('/players/nfl');
+    const um={};users.forEach(u=>um[u.user_id]=u);
+    const teams=rosters.map(r=>{const u=um[r.owner_id];return{id:r.roster_id,name:(u&&(u.metadata?.team_name||u.display_name))||'Team '+r.roster_id,pl:r.players||[]}});
+    const base=+lg.season, def=['pre_draft','drafting'].includes(lg.status)?base:base+1;
+    S={lg,teams,players,rounds,base,idx:0,season:def};
+    const sel=$('#season');sel.innerHTML='';
+    for(let y=base;y<=base+3;y++)sel.add(new Option(y,y,y===def,y===def));
+    $('#team').innerHTML=teams.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('');
+    $('#app').hidden=false;msg(`${lg.name} · ${lg.season} season · ${teams.length} teams`);
+    render();
+  }catch(e){msg('Could not load: '+e.message)}
+}
+
+const exp=pid=>{
+  if(over[pid])return{y:+over[pid],est:false};
+  const p=S.players[pid];
+  if(p&&p.years_exp!=null)return{y:S.base-p.years_exp+2,est:true};
+  return{y:null,est:true};
+};
+const kp=()=>keep[S.season]||(keep[S.season]={});
+const rdOf=pid=>rOver[pid]??S.rounds[pid]?.round??null;
+const nm=pid=>{const p=S.players[pid];return p?(p.full_name||`${p.first_name} ${p.last_name}`):'Unknown ('+pid+')'};
+const POS={QB:0,RB:1,WR:2,TE:3,K:4,DEF:5};
+
+function render(){
+  const t=S.teams[S.idx],K=kp();$('#team').value=S.idx;
+  const rows=t.pl.map(pid=>({pid,p:S.players[pid]||{},e:exp(pid)}))
+    .sort((a,b)=>(POS[a.p.position]??9)-(POS[b.p.position]??9)||(a.e.y??9999)-(b.e.y??9999));
+  let kc=0;
+  $('#rows').innerHTML=rows.map(({pid,p,e})=>{
+    const isDef=p.position==='DEF';
+    let st='<span class="chip">no data</span>',can=false;
+    if(e.y!=null){
+      if(e.y<S.season)st='<span class="chip exp">Expired → pool</span>';
+      else if(e.y===S.season){st='<span class="chip fin">⏳ Final year</span>';can=true}
+      else{st='<span class="chip ok">Yr '+(S.season-(e.y-2)+1)+' of 3</span>';can=true}
+    } else can=true;
+    const k=!!K[pid]&&can;if(k)kc++;
+    const r=rdOf(pid);
+    return `<tr class="${k?'kept':''} ${e.y!=null&&e.y<S.season?'expd':''}"><td><span class="pos">${esc(p.position||'?')}</span> ${esc(nm(pid))}<div class="mu">${esc(p.team||'FA')}</div></td>
+    <td><input class="yr" inputmode="numeric" data-y="${pid}" value="${e.y??''}" title="${e.est?'Estimated from NFL experience':'Your override'}"><div class="mu">${e.est?'est.':'set'}</div></td>
+    <td>${st}</td>
+    <td><input type="checkbox" data-k="${pid}" ${k?'checked':''} ${can?'':'disabled'}></td>
+    <td>${k&&!isDef?`<input class="rd" inputmode="numeric" data-r="${pid}" value="${r??''}" placeholder="Rd">`:''}</td></tr>`}).join('');
+  $('#tsum').textContent=`${t.pl.length} players · ${kc} kept for ${S.season}`;
+  renderRem();
+}
+
+function renderRem(){
+  const K=kp();let h='',any=false;
+  S.teams.forEach(t=>{
+    const ks=t.pl.filter(pid=>K[pid]&&exp(pid).y!==null?exp(pid).y>=S.season:K[pid]);
+    if(!ks.length)return;any=true;
+    h+=`<div class="rm"><b>${esc(t.name)}</b>`+ks.map(pid=>{
+      const r=rdOf(pid);
+      return `<div>${nm(pid)} → ${r?`remove <b>Round ${r}</b> pick`:'<span class="warn">round not set — enter it above</span>'}</div>`}).join('')+'</div>';
+  });
+  $('#rem').innerHTML=any?h:'<div class="mu">No keepers selected yet.</div>';
+}
+
+document.addEventListener('change',e=>{
+  const d=e.target.dataset;if(!S.teams)return;
+  if(d.k){const K=kp();e.target.checked?K[d.k]=true:delete K[d.k];sv('kc_keep',keep);render()}
+  else if(d.y){const v=parseInt(e.target.value);v?over[d.y]=v:delete over[d.y];sv('kc_over',over);render()}
+  else if(d.r){const v=parseInt(e.target.value);v?rOver[d.r]=v:delete rOver[d.r];sv('kc_round',rOver);renderRem()}
+});
+$('#go').onclick=load;
+$('#prev').onclick=()=>{S.idx=(S.idx-1+S.teams.length)%S.teams.length;render()};
+$('#next').onclick=()=>{S.idx=(S.idx+1)%S.teams.length;render()};
+$('#team').onchange=e=>{S.idx=+e.target.value;render()};
+$('#season').onchange=e=>{S.season=+e.target.value;render()};
+$('#clr').onclick=()=>{if(confirm('Clear all expiration overrides?')){over={};sv('kc_over',over);render()}};
+$('#doimp').onclick=()=>{
+  const norm=s=>s.toLowerCase().replace(/[^a-z ]/g,'').replace(/\b(jr|sr|ii|iii|iv)\b/g,'').replace(/\s+/g,' ').trim();
+  const idx={};
+  for(const[pid,p]of Object.entries(S.players)){if(!p.position||p.position==='DEF')continue;
+    const k=norm(p.full_name||'');(idx[k]=idx[k]||[]).push([pid,p])}
+  let ok=0,bad=[];
+  $('#imp').value.split('\n').forEach(l=>{
+    const m=l.match(/^(.*?)[,\-–:\t]+\s*(\d{4})\s*$/);if(!m)return l.trim()&&bad.push(l.trim());
+    const c=idx[norm(m[1])];if(!c)return bad.push(m[1].trim());
+    c.sort((a,b)=>(a[1].team?0:1)-(b[1].team?0:1)||(a[1].search_rank??1e9)-(b[1].search_rank??1e9));
+    over[c[0][0]]=+m[2];ok++});
+  sv('kc_over',over);
+  $('#impmsg').textContent=`Applied ${ok}.`+(bad.length?` Not matched: ${bad.join('; ')}`:'');
+  render();
+};
+if($('#lid').value)load();
+</script></body></html>
