@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Keeper Contracts</title>
+<style>
+:root{--bg:#0f1419;--card:#1a2230;--line:#2a3547;--tx:#e8edf3;--mu:#8b9ab0;--ac:#4ade80;--wa:#fbbf24;--rd:#f87171}
+@media (prefers-color-scheme:light){:root{--bg:#f4f6f9;--card:#fff;--line:#dde3ec;--tx:#18212e;--mu:#617089;--ac:#15803d;--wa:#b45309;--rd:#b91c1c}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:14px;max-width:900px;margin:auto}
+h1{font-size:20px;margin:0 0 10px}h2{font-size:16px;margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+input,select,textarea,button{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+button{cursor:pointer}button.p{background:var(--ac);color:#000;border:0;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.grow{flex:1;min-width:0}
+.mu{color:var(--mu);font-size:13px}
+.nav{display:flex;gap:8px;align-items:center}.nav select{flex:1;min-width:0}
+table{width:100%;border-collapse:collapse;table-layout:fixed}th{font-size:12px;color:var(--mu);text-align:left;font-weight:500}
+td,th{padding:7px 4px;border-bottom:1px solid var(--line);vertical-align:middle}
+.wrap{overflow-x:auto}
+.sec{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mu);padding-top:14px}
+.pos{font-size:11px;font-weight:700;padding:2px 6px;border-radius:6px;background:var(--line);color:#111;display:inline-block;min-width:34px;text-align:center;margin-right:4px}
+.p-QB{background:#ff2a6d}.p-RB{background:#00ceb8}.p-WR{background:#58a7ff}.p-TE{background:#ffae58}.p-K{background:#bd66ff}.p-DEF{background:#a3b0c4}
+.chip{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);display:inline-block;line-height:1.3}
+.fin{color:var(--wa);border-color:var(--wa)}.exp{color:var(--rd);border-color:var(--rd)}.ok{color:var(--ac);border-color:var(--ac)}
+tr.kept{background:rgba(74,222,128,.09)}tr.expd td:first-child{opacity:.55}
+.yr{width:100%;max-width:70px;padding:4px}.rd{width:100%;max-width:56px;padding:4px}
+.pl{display:flex;gap:6px;align-items:flex-start}.pl .pos{min-width:30px;margin:2px 0 0}
+.rm{border-left:3px solid var(--ac);padding:6px 10px;margin:6px 0;background:var(--bg);border-radius:6px}
+.warn{color:var(--wa)}
+#fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));width:52px;height:52px;border-radius:50%;padding:0;font-size:26px;line-height:1;background:var(--ac);color:#000;border:0;box-shadow:0 4px 14px rgba(0,0,0,.4);z-index:10}
+#fab.spin{animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
+body{padding-bottom:80px}
+.rs{padding:8px 4px;border-bottom:1px solid var(--line);cursor:pointer}.rs:last-child{border-bottom:0}
+#q{width:100%}
+</style></head><body>
+<h1>🏈 Keeper Contracts</h1>
+<button id="fab" title="Refresh from Sleeper" aria-label="Refresh">↻</button>
+
+<div class="card">
+  <div class="row"><input id="lid" hidden class="grow" inputmode="numeric" placeholder="Sleeper league ID">
+  <button class="p" id="go">↻ Refresh from Sleeper</button></div>
+  <div class="mu" id="msg" style="margin-top:6px">Loading your league…</div>
+</div>
+
+<div id="app" hidden>
+  <div class="card row">
+    <label class="mu">Current season</label>
+    <select id="season"></select>
+    <span class="mu grow" id="rule">Contract: year drafted in your league = year 1, kept twice, back in the pool 3 years later.</span>
+  </div>
+
+  <div class="card"><input id="q" type="search" placeholder="🔎 Search any player…" autocomplete="off"><div id="qres"></div></div>
+
+  <div class="card">
+    <div class="nav"><button id="prev">◀</button><select id="team"></select><button id="next">▶</button></div>
+    <div class="mu" id="tsum" style="margin:8px 0"></div>
+    <div class="wrap"><table><thead><tr><th style="width:37%">Player</th><th style="width:19%">Expires</th><th style="width:29%">Status</th><th style="width:15%">Keep</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </div>
+
+  <div class="card"><h2 id="tph">Traded picks</h2><div id="tp"></div>
+    <div class="mu">Sleeper only lists picks that have changed hands.</div></div>
+
+  <div class="card"><h2>Picks to remove from the upcoming draft</h2><div id="rem"></div>
+    <div class="mu">Traded picks aren't checked — verify each team still owns the pick.</div></div>
+
+  <div class="card"><h2>Initial expiration list</h2>
+    <div class="mu">One per line: <b>Player Name, 2027</b>. These override the estimated years. You can also edit any year in the table.</div>
+    <textarea id="imp" rows="5" style="width:100%;margin:6px 0" placeholder="Justin Jefferson, 2027&#10;Malik Nabers, 2028"></textarea>
+    <div class="row"><button id="doimp">Apply list</button><button id="clr">Clear all overrides</button></div>
+    <div class="mu" id="impmsg"></div></div>
+</div>
+
+<script>
+const API='https://api.sleeper.app/v1',$=s=>document.querySelector(s);
+const ls=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}};
+const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const SEED=`Christian McCaffrey, 2027
+George Kittle, 2027
+Drake Maye, 2028
+Bijan Robinson, 2027
+Puka Nacua, 2027
+Trey McBride, 2028
+Jayden Daniels, 2027
+Bucky Irving, 2027
+Jaxon Smith-Njigba, 2027
+Saquon Barkley, 2027
+Chase Brown, 2028
+Davante Adams, 2027
+Luther Burden, 2028
+Sam Darnold, 2028
+Jahmyr Gibbs, 2027
+Cam Ward, 2028
+Wan'Dale Robinson, 2028
+Josh Allen, 2027
+Malik Nabers, 2027
+Omarion Hampton, 2028
+Joe Burrow, 2027
+Derrick Henry, 2027
+Jonathan Taylor, 2028
+Tyler Warren, 2028
+Justin Herbert, 2028
+Amon-Ra St. Brown, 2027
+Lamar Jackson, 2027
+Josh Jacobs, 2027
+Ladd McConkey, 2027
+Jalen Hurts, 2027
+James Cook, 2027
+Javonte Williams, 2028
+Drake London, 2028
+Ja'Marr Chase, 2027
+Brock Bowers, 2027
+Bo Nix, 2028
+De'Von Achane, 2027`;
+const OFF=new Set(['QB','RB','WR','TE']);
+let S={},defs=ls('kc_def',{}),over=ls('kc_over',{}),keep=ls('kc_keep',{}),rOver=ls('kc_round',{});
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const j=async u=>{let r;try{r=await fetch(API+u,{cache:'no-store'})}catch(e){throw new Error('network blocked or offline while loading '+u.split('/').filter(x=>isNaN(x)).join('/'))}
+  if(!r.ok)throw new Error(u.split('/').filter(x=>isNaN(x)).join('/')+' returned '+r.status);return r.json()};
+const P6=new Set(['QB','RB','WR','TE','K','DEF']);
+async function getPlayers(){
+  const c=ls('kc_players',null);
+  if(c&&Date.now()-c.t<864e5)return c.d;
+  try{
+    const raw=await j('/players/nfl'),d={};
+    for(const[id,p]of Object.entries(raw)){if(!P6.has(p.position))continue;
+      d[id]={full_name:p.full_name||((p.first_name||'')+' '+(p.last_name||'')).trim(),position:p.position,team:p.team,search_rank:p.search_rank}}
+    sv('kc_players',{t:Date.now(),d});return d;
+  }catch(e){if(c)return c.d;throw e}
+}
+const msg=t=>$('#msg').textContent=t;
+$('#lid').value='1415112738228695040';
+
+async function load(){
+  const id=$('#lid').value.trim();if(!id)return;
+  const prev=S.teams?{idx:S.idx,season:S.season}:null;
+  $('#go').disabled=true;$('#fab').classList.add('spin');
+  try{
+    msg('Loading league…');
+    const [lg,rosters,users]=await Promise.all([j('/league/'+id),j(`/league/${id}/rosters`),j(`/league/${id}/users`)]);
+    sv('kc_league',id);
+    msg('Loading draft history…');
+    const rounds={};let cur=lg,n=0;
+    while(cur&&n++<4){
+      const ds=await j(`/league/${cur.league_id}/drafts`).catch(()=>[]);
+      ds.sort((a,b)=>b.start_time-a.start_time);
+      for(const d of ds){ if(d.status!=='complete')continue;
+        const ps=await j(`/draft/${d.draft_id}/picks`).catch(()=>[]);
+        ps.forEach(p=>{if(p.player_id&&!rounds[p.player_id])rounds[p.player_id]={round:p.round,season:d.season}});
+      }
+      cur=cur.previous_league_id&&cur.previous_league_id!=='0'?await j('/league/'+cur.previous_league_id).catch(()=>null):null;
+    }
+    msg('Loading players (large, one moment)…');
+    const players=await getPlayers();
+    const um={};users.forEach(u=>um[u.user_id]=u);
+    const teams=rosters.map(r=>{const u=um[r.owner_id];return{id:r.roster_id,name:(u&&(u.metadata?.team_name||u.display_name))||'Team '+r.roster_id,pl:r.players||[],keepers:r.keepers||[],starters:r.starters||[],reserve:r.reserve||[],taxi:r.taxi||[]}});
+    const base=+lg.season, def=base;
+    const on=new Set(teams.flatMap(t=>t.pl));
+    Object.keys(defs).forEach(p=>{if(!on.has(p)||rounds[p])delete defs[p]});
+    on.forEach(p=>{if(!rounds[p]&&!defs[p])defs[p]=base+3});
+    sv('kc_def',defs);
+    const traded=await j(`/league/${id}/traded_picks`).catch(()=>[]);
+    S={lg,traded,teams,players,rounds,base,idx:prev?Math.min(prev.idx,teams.length-1):0,season:prev?prev.season:def,slots:(lg.roster_positions||[]).filter(x=>x!=='BN')};
+    const sel=$('#season');sel.innerHTML='';
+    for(let y=base;y<=base+3;y++)sel.add(new Option(y,y,y===S.season,y===S.season));
+    $('#team').innerHTML=teams.map((t,i)=>`<option value="${i}">${esc(t.name)}</option>`).join('');
+    $('#app').hidden=false;msg(`${lg.name} · ${lg.season} season · ${teams.length} teams · updated ${new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`);
+    $('#imp').value=SEED;
+    if(!ls('kc_seeded',false)){doImport(SEED);sv('kc_seeded',true)}
+    render();
+  }catch(e){msg('Could not load: '+e.message)}
+  $('#go').disabled=false;$('#fab').classList.remove('spin');
+}
+
+const exp=pid=>{
+  if(over[pid])return{y:+over[pid],est:false};
+  const d=S.rounds[pid];
+  if(d&&d.season)return{y:+d.season+3,est:true};
+  return{y:defs[pid]||S.base+3,est:true,def:true};
+};
+const isKept=(t,pid)=>{const v=kp()[pid];return v===true||(v!==false&&t.keepers.includes(pid))};
+const kp=()=>keep[S.season+1]||(keep[S.season+1]={});
+const rdOf=pid=>rOver[pid]??S.rounds[pid]?.round??null;
+const nm=pid=>{const p=S.players[pid];return p?(p.full_name||`${p.first_name} ${p.last_name}`):'Unknown ('+pid+')'};
+const POS={QB:0,RB:1,WR:2,TE:3,K:4,DEF:5};
+
+function render(){
+  const t=S.teams[S.idx],K=kp();$('#team').value=S.idx;
+  let kc=0;
+  const row=(pid,label)=>{const p=S.players[pid]||{},e=exp(pid);
+    const isDef=p.position==='DEF';
+    let st='<span class="chip warn">Set year ↑</span>',can=false;
+    if(e.y!=null){
+      if(e.y===S.season+1)st='<span class="chip fin">⏳ 3 of 3 · final season</span><div class="mu">Enters the pool in the '+e.y+' draft</div>';
+      else if(e.y<=S.season)st='<span class="chip exp">Expired → pool</span>';
+      else{st='<span class="chip ok">Yr '+(S.season-(e.y-3)+1)+' of 3</span>';can=true}
+    } else can=true;
+    const k=isKept(t,pid)&&can;if(k)kc++;
+    const r=rdOf(pid);
+    return `<tr class="${k?'kept':''} ${e.y!=null&&e.y<=S.season+1?'expd':''}"><td><div class="pl"><span class="pos p-${esc(p.position||'X')}">${esc(p.position||'?')}</span><div><div>${esc(nm(pid))}</div>${t.keepers.includes(pid)?'<span class="chip ok">Sleeper keeper</span>':''}<div class="mu">${esc(p.team||'FA')} · ${r?'<b>Rd '+r+'</b>'+(rOver[pid]?' (set)':S.rounds[pid]?' · '+S.rounds[pid].season+' draft':''):'no draft round'}</div></div></div></td>
+    <td><input class="yr" inputmode="numeric" data-y="${pid}" value="${e.y??''}" title="${e.est?'From your league draft, or default if never drafted':'Your override'}"><div class="mu">${e.def?'default (no league draft)':e.est?'league draft':'set'}</div></td>
+    <td>${st}</td>
+    <td><input type="checkbox" data-k="${pid}" ${k?'checked':''} ${can?'':'disabled'}>${k&&!isDef?`<br><input class="rd" inputmode="numeric" data-r="${pid}" value="${r??''}" placeholder="Rd" style="margin-top:6px">`:''}</td></tr>`};
+  const pos=x=>S.players[x]?.position,SL={SUPER_FLEX:'SFLX',REC_FLEX:'W/T',WRRB_FLEX:'W/R',FLEX:'FLEX',IDP_FLEX:'IDP'};
+  const srt=(a,b)=>(POS[pos(a)]??9)-(POS[pos(b)]??9)||(exp(a).y??9999)-(exp(b).y??9999);
+  const sec=(title,items)=>items.length?`<tr><td colspan="4" class="sec">${title} <span class="mu">${items.length}</span></td></tr>`+items.join(''):'';
+  const G=[['QB','Quarterbacks'],['RB','Running Backs'],['WR','Wide Receivers'],['TE','Tight Ends'],['K','Kickers'],['DEF','Defense']];
+  const known=G.map(g=>g[0]);
+  $('#rows').innerHTML=G.map(([g,title])=>sec(title,t.pl.filter(x=>pos(x)===g).sort(srt).map(x=>row(x)))).join('')+sec('Other',t.pl.filter(x=>!known.includes(pos(x))).map(x=>row(x)));
+  $('#tsum').textContent=`${t.pl.length} players · ${kc} kept for ${S.season+1}`;
+  renderRem();renderTP();doSearch();
+}
+
+const tName=id=>S.teams.find(t=>t.id===id)?.name||'Team '+id;
+const upc=x=>+x.season===S.season+1;
+const ownerOf=(rid,rd)=>{const x=(S.traded||[]).find(x=>upc(x)&&x.roster_id===rid&&x.round===rd);return x?x.owner_id:rid};
+function renderTP(){
+  const L=(S.traded||[]).filter(x=>upc(x)&&x.owner_id!==x.roster_id).sort((a,b)=>a.round-b.round||a.roster_id-b.roster_id);
+  $('#tph').textContent='Traded picks · '+(S.season+1)+' draft';
+  $('#tp').innerHTML=L.length?L.map(x=>`<div class="rm"><b>Round ${x.round}</b> · ${esc(tName(x.roster_id))}'s pick → <b>${esc(tName(x.owner_id))}</b></div>`).join(''):'<div class="mu">No traded picks found for this draft.</div>';
+}
+const stat=y=>y==null?'no year':y===S.season+1?'⏳ final season (3 of 3)':y<=S.season?'expired, back in pool':'Yr '+(S.season-(y-3)+1)+' of 3';
+function doSearch(){
+  const q=$('#q').value.trim().toLowerCase(),box=$('#qres');
+  if(q.length<2){box.innerHTML='';return}
+  const tag=p=>`<span class="pos p-${esc(p.position||'X')}">${esc(p.position||'?')}</span>`;
+  const on=new Set(S.teams.flatMap(t=>t.pl)),hits=[];
+  S.teams.forEach((t,i)=>t.pl.forEach(pid=>{if(nm(pid).toLowerCase().includes(q))hits.push([pid,i])}));
+  let h=hits.slice(0,12).map(([pid,i])=>{const p=S.players[pid]||{},e=exp(pid);
+    return `<div class="rs" data-go="${i}">${tag(p)} <b>${esc(nm(pid))}</b><div class="mu">${esc(S.teams[i].name)} · expires ${e.y??'—'} · ${stat(e.y)}</div></div>`}).join('');
+  let room=12-Math.min(hits.length,12);
+  for(const [pid,p] of Object.entries(S.players)){if(room<=0)break;
+    if(!on.has(pid)&&nm(pid).toLowerCase().includes(q)){room--;h+=`<div class="rs" style="cursor:default">${tag(p)} <b>${esc(nm(pid))}</b><div class="mu">${esc(p.team||'FA')} · not on a roster (draft pool)</div></div>`}}
+  box.innerHTML=h||'<div class="mu" style="padding:6px 0">No players found</div>';
+}
+function renderRem(){
+  const K=kp();let h='',any=false;
+  S.teams.forEach(t=>{
+    const ks=t.pl.filter(pid=>isKept(t,pid)&&(exp(pid).y==null||exp(pid).y>S.season+1));
+    if(!ks.length)return;any=true;
+    h+=`<div class="rm"><b>${esc(t.name)}</b>`+ks.map(pid=>{
+      const r=rdOf(pid);
+      return `<div>${nm(pid)} → ${r?(ownerOf(t.id,r)!==t.id?`<span class="warn">Round ${r} pick was traded to ${esc(tName(ownerOf(t.id,r)))}</span>`:`remove <b>Round ${r}</b> pick`):'<span class="warn">round not set — enter it above</span>'}</div>`}).join('')+'</div>';
+  });
+  $('#rem').innerHTML=any?h:'<div class="mu">No keepers selected yet.</div>';
+}
+
+$('#q').addEventListener('input',()=>{if(S.teams)doSearch()});
+document.addEventListener('click',e=>{const g=e.target.closest&&e.target.closest('[data-go]');
+  if(g&&S.teams){S.idx=+g.dataset.go;$('#q').value='';render();window.scrollTo({top:$('#team').getBoundingClientRect().top+scrollY-70,behavior:'smooth'})}});
+document.addEventListener('change',e=>{
+  const d=e.target.dataset;if(!S.teams)return;
+  if(d.k){const K=kp();K[d.k]=e.target.checked;sv('kc_keep',keep);render()}
+  else if(d.y){const v=parseInt(e.target.value);v?over[d.y]=v:delete over[d.y];sv('kc_over',over);render()}
+  else if(d.r){const v=parseInt(e.target.value);v?rOver[d.r]=v:delete rOver[d.r];sv('kc_round',rOver);render()}
+});
+$('#go').onclick=load;$('#fab').onclick=load;
+$('#prev').onclick=()=>{S.idx=(S.idx-1+S.teams.length)%S.teams.length;render()};
+$('#next').onclick=()=>{S.idx=(S.idx+1)%S.teams.length;render()};
+$('#team').onchange=e=>{S.idx=+e.target.value;render()};
+$('#season').onchange=e=>{S.season=+e.target.value;render()};
+$('#clr').onclick=()=>{if(confirm('Clear all expiration overrides?')){over={};sv('kc_over',over);render()}};
+function doImport(txt){
+  const norm=s=>s.toLowerCase().replace(/[^a-z ]/g,'').replace(/\b(jr|sr|ii|iii|iv)\b/g,'').replace(/\s+/g,' ').trim();
+  const idx={};
+  for(const[pid,p]of Object.entries(S.players)){if(!p.position||p.position==='DEF')continue;
+    const k=norm(p.full_name||'');(idx[k]=idx[k]||[]).push([pid,p])}
+  let ok=0,bad=[];
+  txt.split('\n').forEach(l=>{
+    const m=l.match(/^(.*?)[,\-–:\t]+\s*(\d{4})\s*$/);if(!m)return l.trim()&&bad.push(l.trim());
+    const c=idx[norm(m[1])];if(!c)return bad.push(m[1].trim());
+    c.sort((a,b)=>(OFF.has(a[1].position)?0:1)-(OFF.has(b[1].position)?0:1)||(a[1].team?0:1)-(b[1].team?0:1)||(a[1].search_rank??1e9)-(b[1].search_rank??1e9));
+    over[c[0][0]]=+m[2];ok++});
+  sv('kc_over',over);
+  $('#impmsg').textContent=`Applied ${ok}.`+(bad.length?` Not matched: ${bad.join('; ')}`:'');
+  render();}
+$('#doimp').onclick=()=>doImport($('#imp').value);
+if($('#lid').value)load();
+</script></body></html>
